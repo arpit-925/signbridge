@@ -7,85 +7,79 @@ class FastApiClient {
   }
 
   async predictSign(payload = {}) {
-    const { file, frames, sessionId, language } = payload;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+  const { file } = payload;
 
-      let response;
-      if (file && file.buffer) {
-        // Send multipart form-data to FastAPI /predict
-        const formData = new FormData();
-        const blob = new Blob([file.buffer], { type: file.mimetype || 'image/jpeg' });
-        formData.append('file', blob, file.originalname || 'frame.jpg');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-        response = await fetch(`${this.baseUrl}/predict`, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        });
-      } else {
-        // Send JSON payload to FastAPI /predict/sign
-        response = await fetch(`${this.baseUrl}/predict/sign`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ frames, sessionId, language }),
-          signal: controller.signal,
-        });
-      }
-      clearTimeout(timeoutId);
+    let response;
 
-      if (!response.ok) {
-        throw new Error(`FastAPI responded with HTTP ${response.status}`);
-      }
+    if (file && file.buffer) {
+      const formData = new FormData();
 
-      const data = await response.json();
+      const blob = new Blob(
+        [file.buffer],
+        { type: file.mimetype || 'image/jpeg' }
+      );
 
-      if (data.prediction) {
-        // Response from /predict/sign
-        return {
-          prediction: {
-            text: data.prediction.text || 'UNKNOWN',
-            label: data.prediction.text || null,
-            confidence: data.prediction.confidence || 0,
-            accepted: data.prediction.accepted ?? true,
-            success: data.prediction.text !== 'UNKNOWN' && data.prediction.text !== null,
-            message: data.prediction.message || 'Sign recognized',
-            provider: 'fastapi',
-          },
-          provider: 'fastapi',
-        };
-      }
+      formData.append(
+        'file',
+        blob,
+        file.originalname || 'frame.jpg'
+      );
 
-      // Response from /predict
-      return {
-        prediction: {
-          text: data.label || 'UNKNOWN',
-          label: data.label || null,
-          confidence: data.confidence || 0,
-          accepted: data.accepted ?? false,
-          success: data.success ?? false,
-          message: data.message || (data.success ? 'Sign recognized' : 'No hand detected'),
-          provider: 'fastapi',
-        },
-        provider: 'fastapi',
-      };
-    } catch (err) {
-      console.warn(`[FastApiClient] AI service unavailable or error: ${err.message}`);
-      return {
-        prediction: {
-          text: null,
-          label: null,
-          confidence: 0,
-          accepted: false,
-          success: false,
-          message: 'AI service unavailable',
-          provider: 'offline',
-        },
-        provider: 'offline',
-      };
+      response = await fetch(`${this.baseUrl}/predict`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+    } else {
+      throw new Error('Image file is required for sign prediction');
     }
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`FastAPI responded with HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      prediction: {
+        text: data.label || 'UNKNOWN',
+        label: data.label || null,
+        confidence: data.confidence || 0,
+        accepted: data.accepted ?? false,
+        success: data.success ?? false,
+        message:
+          data.message ||
+          (data.success ? 'Sign recognized' : 'No hand detected'),
+        provider: 'fastapi',
+      },
+      provider: 'fastapi',
+    };
+
+  } catch (err) {
+    console.warn(
+      `[FastApiClient] AI service unavailable or error: ${err.message}`
+    );
+
+    return {
+      prediction: {
+        text: null,
+        label: null,
+        confidence: 0,
+        accepted: false,
+        success: false,
+        message: 'AI service unavailable',
+        provider: 'offline',
+      },
+      provider: 'offline',
+    };
   }
+}
 
   async predictObject(payload) {
     try {
