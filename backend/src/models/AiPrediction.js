@@ -28,7 +28,7 @@ const aiPredictionSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ['mock', 'fastapi'],
+      enum: ['mock', 'fastapi', 'offline'],
       default: 'mock',
     },
     status: {

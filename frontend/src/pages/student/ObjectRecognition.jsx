@@ -18,16 +18,21 @@ export default function ObjectRecognition() {
     setScanning(true);
     try {
       const res = await aiApi.predictObject({ mode });
-      if (res?.prediction) {
+      const item = res?.data || res?.prediction || res;
+      if (item && item.object) {
+        const signText = typeof item.signInstructions === 'object' && item.signInstructions?.text
+          ? item.signInstructions.text
+          : (typeof item.signInstructions === 'string' ? item.signInstructions : 'Clasp palms together, then pivot open at wrist.');
+
         setDetected({
-          object: res.prediction.object || 'Notebook / Book',
-          emoji: res.prediction.emoji || '📓',
-          confidence: Math.round((res.prediction.confidence || 0.95) * 100),
-          description: res.prediction.description || 'Classroom object detected through computer vision.',
-          signInstructions: res.prediction.signInstructions || 'Clasp palms together, then pivot open at wrist.',
+          object: item.object,
+          emoji: item.emoji || '📓',
+          confidence: Math.round((item.confidence || 0.95) * (item.confidence > 1 ? 1 : 100)),
+          description: item.description || 'Classroom object detected through computer vision.',
+          signInstructions: signText,
         });
-        if (res.prediction.object && !recentObjects.includes(res.prediction.object)) {
-          setRecentObjects((prev) => [res.prediction.object, ...prev.slice(0, 5)]);
+        if (item.object && !recentObjects.includes(item.object)) {
+          setRecentObjects((prev) => [item.object, ...prev.slice(0, 5)]);
         }
       }
     } catch (err) {

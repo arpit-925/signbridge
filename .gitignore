@@ -7,7 +7,7 @@ env/
 # Environment / secrets
 .env
 .env.*
-!.env.example
+.env.example
 
 # Frontend build
 dist/
@@ -28,6 +28,7 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+.history/
 
 # OS
 .DS_Store

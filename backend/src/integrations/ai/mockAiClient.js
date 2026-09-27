@@ -15,39 +15,35 @@ class MockAiClient {
     this.mockObjects = [
       {
         object: 'Notebook / Book',
+        emoji: '📓',
         confidence: 0.97,
         description: 'A portable pad of paper for school work and taking down learning notes.',
-        signInstructions: {
-          text: 'Clasp palms flat together, then pivot them open at the wrist like opening book pages.',
-          icons: ['✋', '📖'],
-        },
+        signInstructions: 'Clasp palms flat together, then pivot them open at the wrist like opening book pages.',
+        icons: ['✋', '📖'],
       },
       {
         object: 'Apple',
+        emoji: '🍎',
         confidence: 0.98,
         description: 'A round fruit with red or green skin and a whitish inside.',
-        signInstructions: {
-          text: 'Place the knuckle of your right index finger against your cheek and twist it back and forth.',
-          icons: ['🍎', '✊'],
-        },
+        signInstructions: 'Place the knuckle of your right index finger against your cheek and twist it back and forth.',
+        icons: ['🍎', '✊'],
       },
       {
         object: 'Computer',
+        emoji: '💻',
         confidence: 0.95,
         description: 'An electronic device for storing and processing data.',
-        signInstructions: {
-          text: 'Form a "C" handshape with your right hand and move it up your left forearm.',
-          icons: ['💻', '🖥️'],
-        },
+        signInstructions: 'Form a "C" handshape with your right hand and move it up your left forearm.',
+        icons: ['💻', '🖥️'],
       },
       {
         object: 'Pencil',
+        emoji: '✏️',
         confidence: 0.96,
         description: 'An instrument for writing or drawing consisting of a thin stick of graphite.',
-        signInstructions: {
-          text: 'Hold thumb and index fingers together like holding a pencil and mimic writing on your open palm.',
-          icons: ['✏️', '✍️'],
-        },
+        signInstructions: 'Hold thumb and index fingers together like holding a pencil and mimic writing on your open palm.',
+        icons: ['✏️', '✍️'],
       },
     ];
   }

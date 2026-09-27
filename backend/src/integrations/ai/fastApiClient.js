@@ -7,79 +7,85 @@ class FastApiClient {
   }
 
   async predictSign(payload = {}) {
-  const { file } = payload;
+    const { file } = payload;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      let imageBuffer = null;
+      let mimeType = 'image/jpeg';
+      let filename = 'frame.jpg';
 
-    let response;
+      if (file && file.buffer) {
+        imageBuffer = file.buffer;
+        mimeType = file.mimetype || 'image/jpeg';
+        filename = file.originalname || 'frame.jpg';
+      } else if (payload.image && typeof payload.image === 'string') {
+        const matches = payload.image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          imageBuffer = Buffer.from(matches[2], 'base64');
+        } else {
+          imageBuffer = Buffer.from(payload.image, 'base64');
+        }
+      } else if (Array.isArray(payload.frames) && payload.frames.length > 0 && typeof payload.frames[0] === 'string') {
+        const frameStr = payload.frames[0];
+        const matches = frameStr.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          imageBuffer = Buffer.from(matches[2], 'base64');
+        } else {
+          imageBuffer = Buffer.from(frameStr, 'base64');
+        }
+      }
 
-    if (file && file.buffer) {
+      if (!imageBuffer) {
+        console.warn('[FastApiClient] No image or frame provided, using mock client fallback');
+        return mockAiClient.predictSign(payload);
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
       const formData = new FormData();
+      const blob = new Blob([imageBuffer], { type: mimeType });
+      formData.append('file', blob, filename);
 
-      const blob = new Blob(
-        [file.buffer],
-        { type: file.mimetype || 'image/jpeg' }
-      );
-
-      formData.append(
-        'file',
-        blob,
-        file.originalname || 'frame.jpg'
-      );
-
-      response = await fetch(`${this.baseUrl}/predict`, {
+      const response = await fetch(`${this.baseUrl}/predict`, {
         method: 'POST',
         body: formData,
         signal: controller.signal,
       });
-    } else {
-      throw new Error('Image file is required for sign prediction');
-    }
 
-    clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      throw new Error(`FastAPI responded with HTTP ${response.status}`);
-    }
+      if (!response.ok) {
+        throw new Error(`FastAPI responded with HTTP ${response.status}`);
+      }
 
-    const data = await response.json();
+      const data = await response.json();
 
-    return {
-      prediction: {
-        text: data.label || 'UNKNOWN',
-        label: data.label || null,
-        confidence: data.confidence || 0,
-        accepted: data.accepted ?? false,
-        success: data.success ?? false,
-        message:
-          data.message ||
-          (data.success ? 'Sign recognized' : 'No hand detected'),
+      return {
+        prediction: {
+          text: data.label || 'UNKNOWN',
+          label: data.label || null,
+          confidence: data.confidence || 0,
+          accepted: data.accepted ?? false,
+          success: data.success ?? false,
+          message:
+            data.message ||
+            (data.success ? 'Sign recognized' : 'No hand detected'),
+          provider: 'fastapi',
+        },
         provider: 'fastapi',
-      },
-      provider: 'fastapi',
-    };
+      };
 
-  } catch (err) {
-    console.warn(
-      `[FastApiClient] AI service unavailable or error: ${err.message}`
-    );
+    } catch (err) {
+      console.warn(
+        `[FastApiClient] AI service unavailable or error: ${err.message}`
+      );
 
-    return {
-      prediction: {
-        text: null,
-        label: null,
-        confidence: 0,
-        accepted: false,
-        success: false,
-        message: 'AI service unavailable',
-        provider: 'offline',
-      },
-      provider: 'offline',
-    };
+      return mockAiClient.predictSign(payload);
+    }
   }
-}
 
   async predictObject(payload) {
     try {

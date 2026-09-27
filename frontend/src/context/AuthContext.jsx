@@ -105,6 +105,7 @@ export function AuthProvider({ children }) {
     logout,
     updateProfile,
     setUser,
+    updateUser: setUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

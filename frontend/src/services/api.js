@@ -1,6 +1,18 @@
 // Centralized HTTP client for SignBridge AI frontend
 
-const BASE_URL = import.meta.env.VITE_API_URL || '';
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.trim().replace(/\/api\/?$/, '').replace(/\/$/, '');
+  }
+  // If running in production or on Vercel deployment without custom env:
+  if (import.meta.env.PROD || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))) {
+    return 'https://signbridge-backend-fdgz.onrender.com';
+  }
+  return '';
+};
+
+const BASE_URL = getBaseUrl();
 
 export const TOKEN_KEY = 'sb_access_token';
 export const REFRESH_KEY = 'sb_refresh_token';

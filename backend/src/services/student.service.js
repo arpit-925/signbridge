@@ -253,6 +253,7 @@ class StudentService {
       percentage,
       passed,
       feedback: attempt.feedback,
+      answers: evaluatedAnswers,
       correctAnswers: quiz.questions.map((q, idx) => ({
         index: idx,
         correctAnswer: q.correctAnswer,

@@ -11,7 +11,7 @@ const studentProfileSchema = new mongoose.Schema(
     },
     studentIdCode: {
       type: String,
-      default: () => `#SB-${Math.floor(100 + Math.random() * 900)}-${Math.floor(10 + Math.random() * 90)}`,
+      default: () => `#SB-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
       unique: true,
       trim: true,
     },

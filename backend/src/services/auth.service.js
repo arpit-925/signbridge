@@ -14,12 +14,13 @@ class AuthService {
     }
 
     const passwordHash = await User.hashPassword(data.password);
-    const initials = data.name
-      .split(' ')
-      .map((n) => n[0])
+    const initials = (data.name || 'User')
+      .trim()
+      .split(/\s+/)
+      .map((n) => n[0] || '')
       .join('')
       .toUpperCase()
-      .slice(0, 2);
+      .slice(0, 2) || 'SB';
 
     const user = await userRepository.create({
       name: data.name,
