@@ -225,6 +225,27 @@ async def predict_sign_json(payload: SignPayload):
     }
 
 
+@app.post("/predict/object")
+async def predict_object():
+    """
+    Classroom Object Recognition endpoint (Educational Demo / Simulated capability).
+    Full object detection pipeline (YOLO/SSD) is documented as planned future work.
+    """
+    return {
+        "success": True,
+        "demo_mode": True,
+        "provider": "fastapi_demo",
+        "message": "Classroom object simulation (educational demo)",
+        "data": {
+            "object": "Notebook / Book",
+            "emoji": "📓",
+            "confidence": 0.95,
+            "description": "A portable pad of paper for school work and taking down learning notes.",
+            "signInstructions": "Clasp palms flat together, then pivot them open at the wrist like opening book pages."
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api.main:app", host="0.0.0.0", port=8001, reload=False)

@@ -8,6 +8,7 @@ class FastApiClient {
 
   async predictSign(payload = {}) {
     const { file } = payload;
+    let timeoutId = null;
 
     try {
       let imageBuffer = null;
@@ -38,12 +39,22 @@ class FastApiClient {
       }
 
       if (!imageBuffer) {
-        console.warn('[FastApiClient] No image or frame provided, using mock client fallback');
-        return mockAiClient.predictSign(payload);
+        return {
+          prediction: {
+            text: 'UNKNOWN',
+            label: null,
+            confidence: 0,
+            accepted: false,
+            success: false,
+            message: 'No image or frame buffer provided for sign inference',
+            provider: 'fastapi',
+          },
+          provider: 'fastapi',
+        };
       }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      timeoutId = setTimeout(() => controller.abort(), 35000);
 
       const formData = new FormData();
       const blob = new Blob([imageBuffer], { type: mimeType });
@@ -54,8 +65,6 @@ class FastApiClient {
         body: formData,
         signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`FastAPI responded with HTTP ${response.status}`);
@@ -80,25 +89,38 @@ class FastApiClient {
 
     } catch (err) {
       console.warn(
-        `[FastApiClient] AI service unavailable or error: ${err.message}`
+        `[FastApiClient] AI service error or cold start timeout: ${err.message}`
       );
 
-      return mockAiClient.predictSign(payload);
+      return {
+        prediction: {
+          text: 'UNKNOWN',
+          label: null,
+          confidence: 0,
+          accepted: false,
+          success: false,
+          message: `AI service unavailable: ${err.message}`,
+          provider: 'offline',
+        },
+        provider: 'offline',
+      };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
   async predictObject(payload) {
+    let timeoutId = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const response = await fetch(`${this.baseUrl}/predict/object`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload || {}),
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`FastAPI responded with HTTP ${response.status}`);
@@ -107,23 +129,25 @@ class FastApiClient {
       const data = await response.json();
       return {
         ...data,
-        provider: 'fastapi',
+        provider: data.provider || 'fastapi',
       };
     } catch (err) {
-      console.warn(`[FastApiClient] Fallback to mock for object recognition: ${err.message}`);
+      console.warn(`[FastApiClient] Fallback to educational demo for object recognition: ${err.message}`);
       return mockAiClient.predictObject(payload);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
   async healthCheck() {
+    let timeoutId = null;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const response = await fetch(`${this.baseUrl}/health`, {
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
@@ -147,6 +171,8 @@ class FastApiClient {
         model: 'SignBridge Vision Core',
         message: 'AI service unavailable',
       };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 }

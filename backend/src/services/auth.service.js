@@ -6,8 +6,24 @@ const ParentProfile = require('../models/ParentProfile');
 const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../utils/token');
 const { BadRequestError, UnauthorizedError, ConflictError } = require('../utils/errors');
 
+const SELF_REGISTER_ROLES = ['student', 'teacher', 'parent'];
+
+const serializeUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  avatar: user.avatar,
+  school: user.school,
+  accessibilityPreferences: user.accessibilityPreferences,
+});
+
 class AuthService {
   async register(data) {
+    if (data.role && !SELF_REGISTER_ROLES.includes(data.role)) {
+      throw new BadRequestError('Admin accounts cannot be self-registered');
+    }
+
     const existing = await userRepository.findByEmail(data.email);
     if (existing) {
       throw new ConflictError('A user with this email address already exists');
@@ -59,15 +75,7 @@ class AuthService {
     await userRepository.setRefreshToken(user._id, refreshToken);
 
     return {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        school: user.school,
-        accessibilityPreferences: user.accessibilityPreferences,
-      },
+      user: serializeUser(user),
       accessToken,
       refreshToken,
     };
@@ -77,6 +85,10 @@ class AuthService {
     const user = await userRepository.findByEmail(email, true);
     if (!user) {
       throw new UnauthorizedError('Invalid email or password');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedError('This account has been deactivated');
     }
 
     const isMatch = await user.comparePassword(password);
@@ -93,15 +105,7 @@ class AuthService {
     await userRepository.setRefreshToken(user._id, refreshToken);
 
     return {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        school: user.school,
-        accessibilityPreferences: user.accessibilityPreferences,
-      },
+      user: serializeUser(user),
       accessToken,
       refreshToken,
     };
@@ -112,7 +116,7 @@ class AuthService {
       const decoded = verifyRefreshToken(token);
       const user = await userRepository.findById(decoded.id, true);
 
-      if (!user || user.refreshToken !== token) {
+      if (!user || !user.isActive || user.refreshToken !== token) {
         throw new UnauthorizedError('Invalid or expired refresh token');
       }
 
@@ -150,14 +154,14 @@ class AuthService {
     }
 
     return {
-      user,
+      user: serializeUser(user),
       profile,
     };
   }
 
   async updateProfile(userId, updateData) {
     const updated = await userRepository.updateById(userId, updateData);
-    return updated;
+    return serializeUser(updated);
   }
 
   async changePassword(userId, currentPassword, newPassword) {
@@ -172,6 +176,8 @@ class AuthService {
     }
 
     user.passwordHash = await User.hashPassword(newPassword);
+    // Revoke the stored refresh token so a stolen token cannot outlive the password change.
+    user.refreshToken = undefined;
     await user.save();
     return true;
   }

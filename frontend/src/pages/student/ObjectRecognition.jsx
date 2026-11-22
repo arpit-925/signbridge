@@ -51,8 +51,8 @@ export default function ObjectRecognition() {
             <p>Point the camera at any item to discover its sign and test yourself.</p>
           </div>
           <div className="d-flex align-items-center gap-2">
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }} />
-            <span className="text-secondary" style={{ fontSize: 13 }}>Vision Engine: AI Vision V1</span>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--warning, #f59e0b)', display: 'inline-block' }} />
+            <span className="text-secondary" style={{ fontSize: 13 }}>Vision Engine: Classroom Object Demo (Simulated)</span>
           </div>
         </div>
       </div>
@@ -103,7 +103,7 @@ export default function ObjectRecognition() {
                     </>
                   )}
                 </button>
-                <span className="text-secondary" style={{ fontSize: 12 }}>Model: YOLOv8-sign (Mocked)</span>
+                <span className="text-secondary" style={{ fontSize: 12 }}>Capability: Educational Demo (Simulated Vision)</span>
               </div>
             </div>
           </div>

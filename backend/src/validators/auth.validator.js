@@ -5,7 +5,9 @@ const registerSchema = {
     name: z.string().min(2, 'Name must be at least 2 characters'),
     email: z.string().email('Invalid email address'),
     password: z.string().min(6, 'Password must be at least 6 characters'),
-    role: z.enum(['student', 'teacher', 'parent', 'admin']).default('student'),
+    // Admin accounts must be provisioned by an administrator (or seed script),
+    // never self-registered through the public API.
+    role: z.enum(['student', 'teacher', 'parent']).default('student'),
     school: z.string().optional(),
     phone: z.string().optional(),
     avatar: z.string().optional(),

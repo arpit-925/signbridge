@@ -1066,3 +1066,56 @@ a {
   .page-header { padding: 14px 16px; }
   .page-body { padding: 14px 16px; }
 }
+
+/* ===== Pulse animation (Sign-to-Voice / Voice-to-Sign indicators) ===== */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+/* ===== Form group ===== */
+.sb-form-group {
+  margin-bottom: 16px;
+}
+
+.sb-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.sb-form-group textarea,
+.sb-form-group input[type="text"],
+.sb-form-group input[type="email"],
+.sb-form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--surface);
+  transition: border-color 0.2s;
+  outline: none;
+}
+
+.sb-form-group textarea:focus,
+.sb-form-group input:focus,
+.sb-form-group select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.1);
+}
+
+/* ===== Quiz layout fix ===== */
+.quiz-video-col {
+  position: relative;
+  z-index: 1;
+}
+
+.quiz-question-col {
+  position: relative;
+  z-index: 2;
+}

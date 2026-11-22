@@ -17,7 +17,7 @@ router.get('/conversations', async (req, res, next) => {
 
 router.get('/:conversationId', async (req, res, next) => {
   try {
-    const messages = await messagingService.getMessages(req.params.conversationId);
+    const messages = await messagingService.getMessages(req.user._id, req.params.conversationId);
     return successResponse(res, messages, 'Messages retrieved');
   } catch (error) {
     next(error);

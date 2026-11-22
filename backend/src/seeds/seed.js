@@ -18,9 +18,25 @@ const Resource = require('../models/Resource');
 const SignDictionary = require('../models/SignDictionary');
 const ConversionHistory = require('../models/ConversionHistory');
 
+const isLocalDatabase = (uri) => /(^|[/@])(localhost|127\.0\.0\.1|::1)(:|\/|$)/i.test(uri || '');
+
 const seedDatabase = async () => {
   try {
+    const uri = process.env.MONGODB_URI || '';
+    const destructiveAllowed =
+      process.env.NODE_ENV !== 'production' &&
+      isLocalDatabase(uri) &&
+      process.env.CONFIRM_DESTRUCTIVE_SEED === 'true';
+
+    if (!destructiveAllowed) {
+      console.warn('[Seed] BLOCKED: Refusing to wipe data.');
+      console.warn('[Seed] Seeding only runs against a local database and requires CONFIRM_DESTRUCTIVE_SEED=true.');
+      console.warn('[Seed] This guard applies to remote/production databases regardless of NODE_ENV.');
+      process.exit(1);
+    }
+
     await connectDB();
+
     console.log('[Seed] Clearing existing collections...');
 
     await Promise.all([

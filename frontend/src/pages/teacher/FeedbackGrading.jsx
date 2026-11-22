@@ -135,7 +135,7 @@ export default function FeedbackGrading() {
                   </h6>
                 </div>
                 {submissions.map((item, i) => {
-                  const studentName = item.studentId?.name || item.studentName || 'Student';
+                  const studentName = item.name || item.studentId?.name || item.studentName || 'Student';
                   const assignmentTitle = item.assignmentId?.title || item.assignment || 'Video Assignment';
                   const isSelected = selected === i;
 
@@ -173,7 +173,7 @@ export default function FeedbackGrading() {
                 <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
                   <div>
                     <h5 className="fw-bold mb-1" style={{ fontSize: 17 }}>
-                      {currentSubmission.studentId?.name || currentSubmission.studentName || 'Student'}'s Submission
+                      {currentSubmission.name || currentSubmission.studentId?.name || currentSubmission.studentName || 'Student'}'s Submission
                     </h5>
                     <p className="text-secondary mb-0" style={{ fontSize: 13 }}>
                       {currentSubmission.assignmentId?.title || currentSubmission.assignment || 'Assignment'} • Status: {currentSubmission.status}
@@ -181,7 +181,7 @@ export default function FeedbackGrading() {
                   </div>
                   <div className="d-flex gap-2">
                     <button
-                      onClick={() => handleGrade('Needs Revision')}
+                      onClick={() => handleGrade('Returned')}
                       disabled={grading}
                       className="btn-secondary"
                       style={{ fontSize: 13 }}
@@ -214,12 +214,16 @@ export default function FeedbackGrading() {
                     <span className="text-secondary" style={{ fontSize: 13 }}>
                       Auto AI translation prediction:{' '}
                       <strong style={{ color: 'var(--text-primary)' }}>
-                        "{currentSubmission.aiPrediction?.text || 'HELLO • GOOD MORNING • THANK YOU'}"
+                        {currentSubmission.aiPrediction?.text
+                          ? `"${currentSubmission.aiPrediction.text}"`
+                          : 'No AI prediction available'}
                       </strong>
                     </span>
-                    <span className="badge-active">
-                      AI Confidence: {currentSubmission.aiPrediction?.confidence || 95}% Match
-                    </span>
+                    {currentSubmission.aiPrediction?.text && (
+                      <span className="badge-active">
+                        AI Confidence: {currentSubmission.aiPrediction.confidence}% Match
+                      </span>
+                    )}
                   </div>
                 </div>
 

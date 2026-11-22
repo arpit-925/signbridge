@@ -24,6 +24,10 @@ const uploadRoutes = require('./routes/upload.routes');
 
 const app = express();
 
+// Render/Vercel terminate TLS in front of the app; trust the first proxy hop so
+// rate limiting keys on the real client address instead of the proxy.
+app.set('trust proxy', 1);
+
 // Security & Parsing
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 const allowedOrigins = [
@@ -78,8 +82,11 @@ app.use('/api/uploads', uploadRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const mongoose = require('mongoose');
+  const dbState = mongoose.connection.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
   res.json({
-    status: 'online',
+    status: dbState === 1 ? 'online' : 'degraded',
+    database: dbState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
     service: 'SignBridge AI Backend',
     version: '1.0.0',

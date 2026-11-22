@@ -4,12 +4,12 @@ const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const Assignment = require('../models/Assignment');
 const Submission = require('../models/Submission');
+const Class = require('../models/Class');
 const StudentProfile = require('../models/StudentProfile');
 const Achievement = require('../models/Achievement');
 const Notification = require('../models/Notification');
 const Message = require('../models/Message');
 const ConversionHistory = require('../models/ConversionHistory');
-const User = require('../models/User');
 const { NotFoundError, BadRequestError } = require('../utils/errors');
 
 class StudentService {
@@ -162,7 +162,7 @@ class StudentService {
     const skip = (page - 1) * limit;
     const [quizzes, total] = await Promise.all([
       Quiz.find({ published: true })
-        .select('-questions.correctAnswer')
+        .select('-questions.correctAnswer -questions.explanation')
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -183,9 +183,13 @@ class StudentService {
   async getQuizById(id) {
     let quiz;
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      quiz = await Quiz.findById(id).select('-questions.correctAnswer').lean();
+      quiz = await Quiz.findOne({ _id: id, published: true })
+        .select('-questions.correctAnswer -questions.explanation')
+        .lean();
     } else {
-      quiz = await Quiz.findOne().select('-questions.correctAnswer').lean();
+      quiz = await Quiz.findOne({ published: true })
+        .select('-questions.correctAnswer -questions.explanation')
+        .lean();
     }
 
     if (!quiz) {
@@ -207,9 +211,9 @@ class StudentService {
   async attemptQuiz(studentId, quizId, { answers = [] }) {
     let quiz;
     if (quizId.match(/^[0-9a-fA-F]{24}$/)) {
-      quiz = await Quiz.findById(quizId).select('+questions.correctAnswer');
+      quiz = await Quiz.findById(quizId).select('+questions.correctAnswer +questions.explanation');
     } else {
-      quiz = await Quiz.findOne().select('+questions.correctAnswer');
+      quiz = await Quiz.findOne().select('+questions.correctAnswer +questions.explanation');
     }
 
     if (!quiz) {
@@ -330,7 +334,14 @@ class StudentService {
   }
 
   async getAssignments(studentId) {
-    const assignments = await Assignment.find({ status: 'Published' }).sort({ dueDate: 1 }).lean();
+    const classes = await Class.find({ students: studentId }).select('_id').lean();
+    const classIds = classes.map((c) => c._id);
+    const assignments = await Assignment.find({
+      status: 'Published',
+      classId: { $in: classIds },
+    })
+      .sort({ dueDate: 1 })
+      .lean();
     const submissions = await Submission.find({ studentId }).lean();
     const subMap = new Map();
     submissions.forEach((s) => subMap.set(s.assignmentId.toString(), s));
@@ -350,25 +361,54 @@ class StudentService {
     });
   }
 
-  async submitAssignment(studentId, assignmentId, { submissionVideoUrl, textResponse }) {
-    const assignment = await Assignment.findById(assignmentId);
+  async submitAssignment(studentId, assignmentId, payload = {}) {
+    const {
+      submissionVideoUrl,
+      textResponse,
+      submissionText,
+      mediaUrl,
+      aiPrediction,
+    } = payload;
+
+    if (!assignmentId.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new BadRequestError('Invalid assignment id');
+    }
+
+    const assignment = await Assignment.findOne({ _id: assignmentId, status: 'Published' });
     if (!assignment) {
       throw new NotFoundError('Assignment not found');
     }
 
+    const enrolled = await Class.exists({ _id: assignment.classId, students: studentId });
+    if (!enrolled) {
+      throw new BadRequestError('You are not enrolled in the class for this assignment');
+    }
+
+    const existing = await Submission.findOne({ assignmentId, studentId });
+    if (existing && existing.status === 'Graded') {
+      throw new BadRequestError('This assignment has already been graded and can no longer be resubmitted');
+    }
+
+    const update = {
+      classId: assignment.classId,
+      submissionVideoUrl: submissionVideoUrl || mediaUrl || '',
+      textResponse: textResponse || submissionText || '',
+      status: 'Awaiting Review',
+      submittedAt: new Date(),
+    };
+
+    // Only persist an AI prediction when the client actually supplied one.
+    if (aiPrediction && typeof aiPrediction === 'object' && aiPrediction.text) {
+      update.aiPrediction = {
+        text: String(aiPrediction.text),
+        confidence: Number(aiPrediction.confidence) || 0,
+      };
+    }
+
     const submission = await Submission.findOneAndUpdate(
       { assignmentId, studentId },
-      {
-        classId: assignment.classId,
-        submissionVideoUrl: submissionVideoUrl || '',
-        status: 'Awaiting Review',
-        submittedAt: new Date(),
-        aiPrediction: {
-          text: 'HELLO • GOOD MORNING • THANK YOU',
-          confidence: 98,
-        },
-      },
-      { upsert: true, new: true }
+      update,
+      { upsert: true, new: true, runValidators: true }
     );
 
     return submission;
@@ -388,17 +428,24 @@ class StudentService {
   }
 
   async getMessages(studentId) {
-    const user = await User.findById(studentId);
-    return {
-      messageDetail: {
-        from: 'Teacher Sarah Jenkins',
-        to: `${user?.name || 'Leo Chen'} Grade 6-B`,
-        date: 'Today at 10:21 AM',
-        subject: 'New Assignment: Unit 4 Social Civic Signs',
-        body: `Hi ${user?.name?.split(' ')[0] || 'Leo'},\n\nExcellent work on completing your Unit 3 ASL greetings practice last week! You showed remarkable consistency.\n\nFor this week, I've assigned Unit 4: Social Science and Civic Signs. Please practice these three signs with your camera converter:\n\n1. "COMMUNITY"\n2. "LEADER"\n3. "POLICE"\n\nYour video submission is due Friday. Good luck!`,
-        dueDate: 'Friday, Jan 30 at 3:00 PM',
-      },
-    };
+    const messages = await Message.find({
+      $or: [{ sender: studentId }, { receiver: studentId }],
+    })
+      .sort({ createdAt: -1 })
+      .populate('sender', 'name')
+      .populate('receiver', 'name')
+      .limit(20)
+      .lean();
+
+    return messages.map((m) => ({
+      id: m._id,
+      from: m.sender?.name || 'Unknown sender',
+      to: m.receiver?.name || 'Unknown recipient',
+      date: m.createdAt ? new Date(m.createdAt).toLocaleString() : '',
+      subject: m.subject || 'Message',
+      body: m.body,
+      dueDate: m.dueDate || '',
+    }));
   }
 
   async getConversions(studentId) {

@@ -24,6 +24,10 @@ const submissionSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    textResponse: {
+      type: String,
+      default: '',
+    },
     status: {
       type: String,
       enum: ['Awaiting Review', 'Graded', 'Returned'],
@@ -39,9 +43,10 @@ const submissionSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    // No fabricated defaults: only populated when a real AI prediction is supplied.
     aiPrediction: {
-      text: { type: String, default: 'HELLO • GOOD MORNING • THANK YOU' },
-      confidence: { type: Number, default: 98 },
+      text: { type: String, default: '' },
+      confidence: { type: Number, default: 0 },
     },
     submittedAt: {
       type: Date,

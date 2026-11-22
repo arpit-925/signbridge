@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Send, Clock, Video, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Send, Video, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { parentApi } from '../../services/parentApi';
+import { useAuth } from '../../context/AuthContext';
 
 export default function ParentCommunication() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,7 +16,7 @@ export default function ParentCommunication() {
     setError(null);
     try {
       const res = await parentApi.getMessages();
-      setMessages(res || []);
+      setMessages(Array.isArray(res) ? res : res?.messages || []);
     } catch (err) {
       setError(err.message || 'Unable to load messages.');
     } finally {
@@ -32,9 +34,14 @@ export default function ParentCommunication() {
 
     setSending(true);
     try {
-      // Find teacher ID from an existing message, or use demo teacher id
-      const sampleReceiverId = messages[0]?.sender?._id || messages[0]?.sender || '67bb4ff3fbbbbbbbbbbbbbbb';
-      await parentApi.sendMessage(sampleReceiverId, inputText.trim(), 'Update from Parent');
+      const last = messages[messages.length - 1];
+      const other = last
+        ? String(last.sender?._id || last.sender) === String(user?.id)
+          ? last.receiver
+          : last.sender
+        : null;
+      // When there is no prior conversation the backend resolves a teacher for the parent.
+      await parentApi.sendMessage(other?._id || other || undefined, inputText.trim(), 'Update from Parent');
       setInputText('');
       await fetchMessages();
     } catch (err) {
@@ -44,11 +51,19 @@ export default function ParentCommunication() {
     }
   };
 
-  const defaultChatMessages = [
-    { sender: 'teacher', text: "Hello Mr. Chen! Leo did a fantastic job on his greetings quiz today.", time: '09:15 AM' },
-    { sender: 'parent', text: "Thank you so much Mrs. Jenkins! We practiced together last night with the converter.", time: '09:45 AM', status: 'Delivered' },
-    { sender: 'teacher', text: "It clearly showed! His hand positioning for 'thank you' was flawless.", time: '10:02 AM' },
-  ];
+  const lastMessage = messages[messages.length - 1];
+  const otherParty = lastMessage
+    ? String(lastMessage.sender?._id || lastMessage.sender) === String(user?.id)
+      ? lastMessage.receiver
+      : lastMessage.sender
+    : null;
+  const otherName = otherParty?.name || 'Teacher';
+  const otherInitials = otherName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
 
   return (
     <>
@@ -107,14 +122,14 @@ export default function ParentCommunication() {
                       fontWeight: 700,
                     }}
                   >
-                    SJ
+                    {otherInitials || 'T'}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="d-flex justify-content-between">
-                      <span className="fw-semibold" style={{ fontSize: 13 }}>Sarah Jenkins (Leo)</span>
+                      <span className="fw-semibold" style={{ fontSize: 13 }}>{otherName}</span>
                     </div>
                     <p className="text-secondary mb-0 text-truncate" style={{ fontSize: 12 }}>
-                      {messages[0]?.body?.slice(0, 35) || 'Recent updates on classroom signs...'}
+                      {lastMessage?.body?.slice(0, 35) || 'No messages yet'}
                     </p>
                   </div>
                 </div>
@@ -138,8 +153,8 @@ export default function ParentCommunication() {
               <div className="sb-card d-flex flex-column" style={{ minHeight: 480 }}>
                 <div className="d-flex align-items-center justify-content-between pb-3 mb-3" style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <div>
-                    <h6 className="fw-bold mb-0" style={{ fontSize: 15 }}>Sarah Jenkins</h6>
-                    <span className="text-secondary" style={{ fontSize: 12 }}>Lead ASL Instructor • Metro Public School</span>
+                    <h6 className="fw-bold mb-0" style={{ fontSize: 15 }}>{otherName}</h6>
+                    <span className="text-secondary" style={{ fontSize: 12 }}>Classroom instructor</span>
                   </div>
                   <button className="btn-secondary" style={{ padding: '8px 16px', fontSize: 12 }}>
                     <Video size={14} /> Join Video Room
@@ -148,22 +163,22 @@ export default function ParentCommunication() {
 
                 {/* Chat Messages */}
                 <div className="flex-grow-1 overflow-y-auto mb-3" style={{ minHeight: 280 }}>
-                  {defaultChatMessages.map((m, i) => (
-                    <div key={i} className={`chat-bubble ${m.sender === 'parent' ? 'sent' : 'received'}`}>
-                      <div>{m.text}</div>
-                      <div className="chat-timestamp text-end">
-                        {m.time} {m.status && `• ${m.status}`}
+                  {messages.length === 0 && (
+                    <p className="text-secondary text-center mb-0" style={{ fontSize: 13 }}>
+                      No messages yet. Send the first message to your child's teacher.
+                    </p>
+                  )}
+                  {messages.map((m, i) => {
+                    const isMine = String(m.sender?._id || m.sender) === String(user?.id);
+                    return (
+                      <div key={m._id || i} className={`chat-bubble ${isMine ? 'sent' : 'received'}`}>
+                        <div>{m.body}</div>
+                        <div className="chat-timestamp text-end">
+                          {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {messages.map((m, i) => (
-                    <div key={i} className="chat-bubble received">
-                      <div>{m.body}</div>
-                      <div className="chat-timestamp text-end">
-                        {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Input Area */}

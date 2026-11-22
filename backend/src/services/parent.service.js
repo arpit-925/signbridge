@@ -1,34 +1,136 @@
 const ParentProfile = require('../models/ParentProfile');
 const User = require('../models/User');
 const StudentProfile = require('../models/StudentProfile');
-const Message = require('../models/Message');
+const LessonProgress = require('../models/LessonProgress');
+const QuizAttempt = require('../models/QuizAttempt');
+const Submission = require('../models/Submission');
 const Feedback = require('../models/Feedback');
-const { ForbiddenError, NotFoundError } = require('../utils/errors');
+const Message = require('../models/Message');
+const Class = require('../models/Class');
+const messagingService = require('./messaging.service');
+const { ForbiddenError, NotFoundError, BadRequestError } = require('../utils/errors');
+
+const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(String(value || ''));
+
+const initials = (name = '') =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
 
 class ParentService {
+  async getProfile(parentId) {
+    const profile = await ParentProfile.findOne({ userId: parentId }).populate('children').lean();
+    if (!profile) {
+      throw new ForbiddenError('Parent profile not configured');
+    }
+    return profile;
+  }
+
+  async getChildren(parentId) {
+    const profile = await this.getProfile(parentId);
+    const children = profile.children || [];
+    const childIds = children.map((c) => c._id);
+
+    const [studentProfiles, progresses] = await Promise.all([
+      StudentProfile.find({ userId: { $in: childIds } }).lean(),
+      LessonProgress.find({ studentId: { $in: childIds } })
+        .populate('lessonId', 'title category')
+        .sort({ updatedAt: -1 })
+        .lean(),
+    ]);
+
+    const profileMap = new Map(studentProfiles.map((p) => [p.userId.toString(), p]));
+
+    return children.map((child) => {
+      const studentProfile = profileMap.get(child._id.toString());
+      const childProgress = progresses.filter((p) => p.studentId.toString() === child._id.toString());
+      const latest = childProgress[0];
+      const progress =
+        childProgress.length > 0
+          ? Math.round(
+              childProgress.reduce((sum, p) => sum + (p.percentage || 0), 0) / childProgress.length
+            )
+          : 0;
+
+      return {
+        id: child._id,
+        name: child.name,
+        email: child.email,
+        grade: studentProfile?.grade || 'Grade 6',
+        school: studentProfile?.school || 'Metro Public School',
+        lesson: latest?.lessonId?.title || 'No lesson activity yet',
+        progress,
+        avatar: initials(child.name),
+      };
+    });
+  }
+
   async getDashboard(parentId) {
-    const parentProfile = await ParentProfile.findOne({ userId: parentId }).populate('children').lean();
+    const children = await this.getChildren(parentId);
+    const childIds = children.map((c) => c.id);
+
+    const [studentProfiles, progresses, attempts, submissions] = await Promise.all([
+      StudentProfile.find({ userId: { $in: childIds } }).lean(),
+      LessonProgress.find({ studentId: { $in: childIds } }).lean(),
+      QuizAttempt.find({ studentId: { $in: childIds } }).lean(),
+      Submission.find({ studentId: { $in: childIds } })
+        .populate('studentId', 'name')
+        .populate('assignmentId', 'title')
+        .sort({ submittedAt: -1 })
+        .limit(5)
+        .lean(),
+    ]);
+
+    const completedLessons = progresses.filter((p) => p.status === 'Completed').length;
+    const averageQuiz =
+      attempts.length > 0
+        ? Math.round(attempts.reduce((sum, a) => sum + (a.percentage || 0), 0) / attempts.length)
+        : 0;
+    const combinedStreak = studentProfiles.reduce((sum, p) => sum + (p.streak || 0), 0);
+    const pendingSubmissions = submissions.filter((s) => s.status === 'Awaiting Review').length;
 
     const parentKPIs = [
-      { label: 'Weekly Lessons Completed', value: '14 / 16', sub: '+2 bonus modules done' },
-      { label: 'Average Quiz Trend', value: '94%', sub: 'Consistent Grade A bracket' },
-      { label: 'Combined Streak', value: '12 Days', sub: 'Shared achievement unlocked!' },
+      {
+        label: 'Weekly Lessons Completed',
+        value: `${completedLessons} / ${progresses.length}`,
+        sub: 'Across all registered children',
+      },
+      {
+        label: 'Average Quiz Trend',
+        value: `${averageQuiz}%`,
+        sub: attempts.length > 0 ? `Based on ${attempts.length} attempts` : 'No quiz attempts yet',
+      },
+      {
+        label: 'Combined Streak',
+        value: `${combinedStreak} Days`,
+        sub: 'Combined active learning streak',
+      },
     ];
 
-    const children = [
-      { id: 'child_leo', name: 'Leo Chen', grade: 'Grade 6', school: 'Metro School', lesson: 'Basic Science Greetings', progress: 75, avatar: 'LC' },
-      { id: 'child_mia', name: 'Mia Chen', grade: 'Grade 3', school: 'Metro School', lesson: 'Fractions Practice Quiz', progress: 88, avatar: 'MC' },
-    ];
+    const parentTimeline = submissions.map((s) => ({
+      child: s.studentId?.name || 'Student',
+      action: `submitted "${s.assignmentId?.title || 'an assignment'}"`,
+      detail: s.status === 'Graded' && s.score != null ? `Score: ${s.score}%` : s.status,
+      time: s.submittedAt ? new Date(s.submittedAt).toLocaleString() : '',
+      icon: s.status === 'Graded' ? '✅' : '📝',
+    }));
 
-    const parentTimeline = [
-      { child: 'Leo Chen', action: 'submitted ASL Math Quiz: Fractions', detail: 'Score: 100%', time: '10 mins ago', icon: '✅' },
-      { child: 'Mia Chen', action: 'unlocked achievement badge:', detail: '"Double Stream King"', time: '1 hour ago', icon: '🏆' },
-    ];
-
-    const parentAlerts = [
-      { type: 'pink', text: "Teacher Sarah Jenkins left a custom video feedback on Leo's science presentation." },
-      { type: 'orange', text: 'Upcoming due date: Mia\'s homework "Common Sign Concepts" tomorrow 4 PM.' },
-    ];
+    const parentAlerts = [];
+    if (pendingSubmissions > 0) {
+      parentAlerts.push({
+        type: 'orange',
+        text: `${pendingSubmissions} submission(s) from your children are awaiting teacher review.`,
+      });
+    }
+    if (children.length === 0) {
+      parentAlerts.push({
+        type: 'pink',
+        text: 'No children are linked to this parent account yet. Contact your school administrator.',
+      });
+    }
 
     return {
       kpis: parentKPIs,
@@ -38,22 +140,9 @@ class ParentService {
     };
   }
 
-  async getChildren(parentId) {
-    const parentProfile = await ParentProfile.findOne({ userId: parentId }).populate('children').lean();
-    if (parentProfile?.children?.length > 0) {
-      return parentProfile.children;
-    }
-
-    return [
-      { id: 'leo', name: 'Leo Chen', grade: 'Grade 6', school: 'Metro School', lesson: 'Basic Science Greetings', progress: 75, avatar: 'LC' },
-      { id: 'mia', name: 'Mia Chen', grade: 'Grade 3', school: 'Metro School', lesson: 'Fractions Practice Quiz', progress: 88, avatar: 'MC' },
-    ];
-  }
-
   async verifyChildAccess(parentId, childId) {
-    // If it's a seed key or demo, allow
-    if (childId === 'leo' || childId === 'mia' || childId === 'child_leo' || childId === 'child_mia') {
-      return true;
+    if (!isObjectId(childId)) {
+      throw new ForbiddenError('Unauthorized: You can only view progress for your registered children');
     }
 
     const parentProfile = await ParentProfile.findOne({ userId: parentId });
@@ -72,29 +161,63 @@ class ParentService {
   async getChildProgress(parentId, childId) {
     await this.verifyChildAccess(parentId, childId);
 
-    const childSubjects = [
-      { subject: 'ASL Vocabulary & Grammar', percent: 92, color: 'teal' },
-      { subject: 'Bilingual Math Concepts', percent: 78, color: 'blue' },
-      { subject: 'Bilingual Science Signs', percent: 85, color: 'orange' },
-    ];
+    const [progresses, feedback, quizAttempts] = await Promise.all([
+      LessonProgress.find({ studentId: childId }).populate('lessonId', 'title category').lean(),
+      Feedback.findOne({ studentId: childId })
+        .populate('teacherId', 'name')
+        .sort({ createdAt: -1 })
+        .lean(),
+      QuizAttempt.find({ studentId: childId }).lean(),
+    ]);
 
-    const dailyEngagement = [
-      { day: 'Mon', hours: 3 },
-      { day: 'Tue', hours: 4 },
-      { day: 'Wed', hours: 2.5 },
-      { day: 'Thu', hours: 6 },
-      { day: 'Fri', hours: 3.5 },
-      { day: 'Sat', hours: 1 },
-      { day: 'Sun', hours: 1.5 },
-    ];
+    const subjectMap = new Map();
+    progresses.forEach((p) => {
+      const category = p.lessonId?.category || 'General';
+      if (!subjectMap.has(category)) subjectMap.set(category, []);
+      subjectMap.get(category).push(p.percentage || 0);
+    });
 
-    const teacherFeedback = {
-      teacher: 'Sarah Jenkins',
-      subject: 'Science',
-      comment: "Leo's visual presentation on the water cycle was exceptional. He showed high precision in water stage hand movements.",
-    };
+    const colors = ['teal', 'blue', 'orange', 'purple'];
+    const childSubjects = Array.from(subjectMap.entries()).map(([subject, values], index) => ({
+      subject,
+      percent: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
+      color: colors[index % colors.length],
+    }));
 
-    const supportiveStrategy = "Practice interactive math vocabulary using side-by-side ASL videos on Sign Bridge's Math module.";
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dailyEngagement = [];
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - offset);
+      const next = new Date(date);
+      next.setDate(next.getDate() + 1);
+      const activityCount = progresses.filter(
+        (p) => p.updatedAt && p.updatedAt >= date && p.updatedAt < next
+      ).length;
+      dailyEngagement.push({
+        day: days[date.getDay()],
+        hours: Number((activityCount * 0.5).toFixed(1)),
+      });
+    }
+
+    const teacherFeedback = feedback
+      ? {
+          teacher: feedback.teacherId?.name || 'Teacher',
+          subject: feedback.subject || 'General',
+          comment: feedback.comments,
+        }
+      : null;
+
+    const averageQuiz =
+      quizAttempts.length > 0
+        ? Math.round(quizAttempts.reduce((sum, a) => sum + (a.percentage || 0), 0) / quizAttempts.length)
+        : 0;
+
+    const supportiveStrategy =
+      averageQuiz > 0
+        ? `Continue daily practice; the current quiz average is ${averageQuiz}%.`
+        : 'Encourage daily ASL practice using the lesson modules to build a baseline.';
 
     return {
       childSubjects,
@@ -107,35 +230,103 @@ class ParentService {
   async getChildActivity(parentId, childId) {
     await this.verifyChildAccess(parentId, childId);
 
-    return [
-      { action: 'Submitted ASL Math Quiz: Fractions', time: '10 mins ago', score: '100%' },
-      { action: 'Completed Lesson 3: ASL Basics', time: 'Yesterday', score: 'Completed' },
-      { action: 'Unlocked Streak Badge: 7 Days', time: '2 days ago', score: '' },
+    const [progresses, attempts, submissions] = await Promise.all([
+      LessonProgress.find({ studentId: childId }).populate('lessonId', 'title').lean(),
+      QuizAttempt.find({ studentId: childId }).populate('quizId', 'title').lean(),
+      Submission.find({ studentId: childId }).populate('assignmentId', 'title').lean(),
+    ]);
+
+    const activity = [
+      ...progresses.map((p) => ({
+        action:
+          p.status === 'Completed'
+            ? `Completed Lesson: ${p.lessonId?.title || 'Lesson'}`
+            : `Studied Lesson: ${p.lessonId?.title || 'Lesson'}`,
+        time: p.updatedAt,
+        score: p.status === 'Completed' ? 'Completed' : `${p.percentage || 0}%`,
+      })),
+      ...attempts.map((a) => ({
+        action: `Submitted Quiz: ${a.quizId?.title || 'Quiz'}`,
+        time: a.completedAt || a.createdAt,
+        score: `${a.percentage || 0}%`,
+      })),
+      ...submissions.map((s) => ({
+        action: `Submitted Assignment: ${s.assignmentId?.title || 'Assignment'}`,
+        time: s.submittedAt,
+        score: s.score != null ? `${s.score}%` : s.status,
+      })),
     ];
+
+    return activity
+      .filter((item) => item.time)
+      .sort((a, b) => new Date(b.time) - new Date(a.time))
+      .slice(0, 10)
+      .map((item) => ({
+        action: item.action,
+        time: new Date(item.time).toLocaleString(),
+        score: item.score,
+      }));
   }
 
   async getMessages(parentId) {
-    return {
-      teacherConversations: [
-        { name: 'Sarah Jenkins', child: 'Leo', lastMessage: 'Excellent work on the project!', avatar: 'SJ' },
-        { name: 'Marcus Aurelius', child: 'Mia', lastMessage: "Let's review the upcoming test.", avatar: 'MA' },
-      ],
-      chatMessages: [
-        { sender: 'parent', text: "Hello Sarah, thank you for the feedback on Leo's water cycle project! We practiced the signs again last night.", time: 'Yesterday, 5:30 PM', status: 'Read' },
-        { sender: 'teacher', text: "That's wonderful to hear, Robert! His precision with visual ASL descriptors is outstanding. Let's touch base at our scheduled IEP review.", time: 'Today, 8:15 AM', status: '' },
-      ],
-    };
+    return Message.find({
+      $or: [{ sender: parentId }, { receiver: parentId }],
+    })
+      .sort({ createdAt: 1 })
+      .populate('sender', 'name role avatar')
+      .populate('receiver', 'name role avatar')
+      .lean();
   }
 
-  async sendMessage(parentId, { receiverId, text, conversationId }) {
-    const msg = await Message.create({
-      sender: parentId,
-      receiver: receiverId || parentId, // Demo fallback
-      conversationId: conversationId || `conv_${parentId}`,
-      body: text,
-      read: false,
+  async resolveReceiver(parentId, receiverId) {
+    if (receiverId) {
+      if (!isObjectId(receiverId)) {
+        throw new BadRequestError('A valid receiverId is required');
+      }
+      const exists = await User.exists({ _id: receiverId });
+      if (!exists) {
+        throw new NotFoundError('Recipient not found');
+      }
+      return receiverId;
+    }
+
+    const lastMessage = await Message.findOne({
+      $or: [{ sender: parentId }, { receiver: parentId }],
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (lastMessage) {
+      return lastMessage.sender.toString() === parentId.toString()
+        ? lastMessage.receiver
+        : lastMessage.sender;
+    }
+
+    const profile = await ParentProfile.findOne({ userId: parentId }).lean();
+    const childIds = profile?.children || [];
+    const classroom = await Class.findOne({ students: { $in: childIds } })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (classroom?.teacherId) {
+      return classroom.teacherId;
+    }
+
+    throw new BadRequestError('No teacher is available to receive this message yet');
+  }
+
+  async sendMessage(parentId, { receiverId, text, body, subject }) {
+    const content = (body || text || '').trim();
+    if (!content) {
+      throw new BadRequestError('Message body is required');
+    }
+
+    const target = await this.resolveReceiver(parentId, receiverId);
+    return messagingService.sendMessage(parentId, {
+      receiverId: target,
+      body: content,
+      subject: subject || 'Parent Communication',
     });
-    return msg;
   }
 }
 

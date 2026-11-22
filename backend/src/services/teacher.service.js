@@ -10,12 +10,16 @@ class TeacherService {
   async getDashboard(teacherId) {
     const classes = await Class.find({ teacherId }).populate('students', 'name email avatar');
     const totalStudents = classes.reduce((acc, c) => acc + (c.students?.length || 0), 0);
-    const pendingGrading = await Submission.countDocuments({ status: 'Awaiting Review' });
+    const classIds = classes.map((c) => c._id);
+    const pendingGrading = await Submission.countDocuments({
+      classId: { $in: classIds },
+      status: 'Awaiting Review',
+    });
 
     const kpis = [
-      { label: 'Total Students', value: `${totalStudents || 48}`, sub: 'Across 3 active grade portals' },
-      { label: 'Active Classes', value: `${classes.length || 3}`, sub: 'G2 ASL, G3 Math, G6 Science' },
-      { label: 'Pending Grading', value: `${pendingGrading || 12}`, sub: 'Submissions needing verification' },
+      { label: 'Total Students', value: `${totalStudents}`, sub: 'Across your active classes' },
+      { label: 'Active Classes', value: `${classes.length}`, sub: 'Classes assigned to you' },
+      { label: 'Pending Grading', value: `${pendingGrading}`, sub: 'Submissions needing verification' },
       { label: 'Avg. Progress', value: '82%', sub: '+4% increase from last week' },
     ];
 
@@ -44,26 +48,25 @@ class TeacherService {
 
   async getClasses(teacherId) {
     const classes = await Class.find({ teacherId }).lean();
-    if (classes.length > 0) {
-      return classes.map((c) => ({
-        id: c._id,
-        name: c.name,
-        grade: c.grade,
-        roster: c.students?.length || 18,
-        module: c.module || 'Greetings module',
-        progress: c.progress || 75,
-      }));
-    }
-
-    return [
-      { name: 'ASL 101 - Beginners', grade: 'Grade 2', roster: 18, module: 'Greetings module', progress: 75 },
-      { name: 'Math Signs & Fractions', grade: 'Grade 3', roster: 14, module: 'Fractions Concepts', progress: 60 },
-    ];
+    return classes.map((c) => ({
+      id: c._id,
+      name: c.name,
+      grade: c.grade,
+      roster: c.students?.length || 0,
+      module: c.module || 'Greetings module',
+      progress: c.progress || 0,
+    }));
   }
 
   async createClass(teacherId, data) {
     const newClass = await Class.create({
-      ...data,
+      name: data.name,
+      code: data.code,
+      grade: data.grade,
+      module: data.module,
+      students: data.students,
+      progress: data.progress,
+      schedule: data.schedule,
       teacherId,
     });
     return newClass;
@@ -73,7 +76,11 @@ class TeacherService {
     const target = await Class.findOne({ _id: classId, teacherId });
     if (!target) throw new NotFoundError('Class not found or unauthorized');
 
-    Object.assign(target, data);
+    // Never allow ownership (teacherId) or _id to be reassigned through the API.
+    const allowed = ['name', 'code', 'grade', 'module', 'students', 'progress', 'schedule'];
+    allowed.forEach((field) => {
+      if (data[field] !== undefined) target[field] = data[field];
+    });
     await target.save();
     return target;
   }
@@ -87,12 +94,7 @@ class TeacherService {
   async getClassStudents(teacherId, classId) {
     const target = await Class.findOne({ _id: classId, teacherId }).populate('students');
     if (!target) {
-      // Return default roster matching frontend if mock ID used
-      return [
-        { name: 'Leo Chen', enrollment: 'Sep 4, 2025', progress: 80, lastActive: 'Today, 09:30 AM' },
-        { name: 'Mia Rose', enrollment: 'Sep 4, 2025', progress: 72, lastActive: 'Today, 08:45 AM' },
-        { name: 'Alex Dunphy', enrollment: 'Sep 5, 2025', progress: 65, lastActive: 'Yesterday' },
-      ];
+      throw new NotFoundError('Class not found or unauthorized');
     }
 
     return target.students.map((s) => ({
@@ -106,10 +108,22 @@ class TeacherService {
   }
 
   async createAssignment(teacherId, data) {
+    if (!data.classId) {
+      throw new BadRequestError('classId is required');
+    }
+    const ownsClass = await Class.exists({ _id: data.classId, teacherId });
+    if (!ownsClass) {
+      throw new ForbiddenError('You can only assign work to your own classes');
+    }
+
     const assignment = await Assignment.create({
-      ...data,
-      teacherId,
+      title: data.title,
+      classId: data.classId,
+      description: data.description,
+      includedLessonResource: data.includedLessonResource,
+      dueDate: data.dueDate,
       status: data.status || 'Published',
+      teacherId,
     });
     return assignment;
   }
@@ -118,7 +132,17 @@ class TeacherService {
     const assignment = await Assignment.findOne({ _id: assignmentId, teacherId });
     if (!assignment) throw new NotFoundError('Assignment not found or unauthorized');
 
-    Object.assign(assignment, data);
+    if (data.classId && data.classId.toString() !== assignment.classId.toString()) {
+      const ownsClass = await Class.exists({ _id: data.classId, teacherId });
+      if (!ownsClass) {
+        throw new ForbiddenError('You can only move work to your own classes');
+      }
+    }
+
+    const allowed = ['title', 'classId', 'description', 'includedLessonResource', 'dueDate', 'status'];
+    allowed.forEach((field) => {
+      if (data[field] !== undefined) assignment[field] = data[field];
+    });
     await assignment.save();
     return assignment;
   }
@@ -130,45 +154,46 @@ class TeacherService {
   }
 
   async getSubmissions(teacherId) {
-    const submissions = await Submission.find()
+    const classes = await Class.find({ teacherId }).select('_id').lean();
+    const classIds = classes.map((c) => c._id);
+
+    const submissions = await Submission.find({ classId: { $in: classIds } })
       .populate('studentId', 'name email avatar')
       .populate('assignmentId', 'title')
       .sort({ submittedAt: -1 })
       .lean();
 
-    if (submissions.length > 0) {
-      return submissions.map((s, i) => ({
-        id: s._id,
-        name: s.studentId?.name || 'Student',
-        assignment: s.assignmentId?.title || 'Classroom Greetings Video',
-        time: '10m ago',
-        status: s.status,
-        selected: i === 0,
-        submissionVideoUrl: s.submissionVideoUrl,
-        aiPrediction: s.aiPrediction || { text: 'HELLO • GOOD MORNING • THANK YOU', confidence: 98 },
-        score: s.score,
-        feedback: s.feedback,
-      }));
-    }
-
-    return [
-      { id: 'sub_1', name: 'Leo Chen', assignment: 'Classroom Greetings Video', time: '10m ago', status: 'Awaiting Review', selected: true, aiPrediction: { text: 'HELLO • GOOD MORNING • THANK YOU', confidence: 98 }, score: 95, feedback: 'Excellent clarity!' },
-      { id: 'sub_2', name: 'Mia Rose', assignment: 'Classroom Greetings Video', time: '1h ago', status: 'Awaiting Review', selected: false, aiPrediction: { text: 'HELLO • GOOD MORNING', confidence: 94 }, score: 88, feedback: 'Great job!' },
-      { id: 'sub_3', name: 'Alex Dunphy', assignment: 'Water Cycle Signs', time: '2h ago', status: 'Awaiting Review', selected: false, aiPrediction: { text: 'WATER CYCLE • CLOUD', confidence: 91 }, score: 75, feedback: 'Keep practicing!' },
-    ];
+    return submissions.map((s, i) => ({
+      id: s._id,
+      name: s.studentId?.name || 'Student',
+      assignment: s.assignmentId?.title || 'Untitled assignment',
+      time: s.submittedAt ? new Date(s.submittedAt).toLocaleString() : '',
+      status: s.status,
+      selected: i === 0,
+      submissionVideoUrl: s.submissionVideoUrl,
+      textResponse: s.textResponse,
+      aiPrediction: s.aiPrediction,
+      score: s.score,
+      feedback: s.feedback,
+    }));
   }
 
   async gradeSubmission(teacherId, submissionId, { score, feedback, status = 'Graded' }) {
-    let submission;
-    if (submissionId.match(/^[0-9a-fA-F]{24}$/)) {
-      submission = await Submission.findById(submissionId);
-    } else {
-      submission = await Submission.findOne();
+    if (!submissionId.match(/^[0-9a-fA-F]{24}$/)) {
+      throw new BadRequestError('Invalid submission id');
+    }
+    if (!['Graded', 'Returned'].includes(status)) {
+      throw new BadRequestError('Invalid grading status');
     }
 
+    const submission = await Submission.findById(submissionId);
     if (!submission) {
-      // Mock acknowledge if seed id
-      return { id: submissionId, score, feedback, status: 'Graded' };
+      throw new NotFoundError('Submission not found');
+    }
+
+    const ownsClass = await Class.exists({ _id: submission.classId, teacherId });
+    if (!ownsClass) {
+      throw new ForbiddenError('You can only grade submissions from your own classes');
     }
 
     submission.score = score;

@@ -55,14 +55,7 @@ export default function MessagesNotifications() {
     notifications[0] ||
     null;
 
-  const activeMessage = messages[0] || {
-    from: 'Teacher Sarah Jenkins',
-    to: 'Leo Chen (Class 6B)',
-    date: 'Today, 08:30 AM',
-    subject: 'New Assignment: Unit 4 Social Civic Signs',
-    body: `Hi Leo,\n\nExcellent work on completing your Unit 3 ASL greetings practice last week! You showed remarkable consistency.\n\nFor this week, I've assigned Unit 4: Social Science and Civic Signs. Please practice these three signs with your camera converter:\n\n1. "COMMUNITY"\n2. "LEADER"\n3. "POLICE"\n\nYour video submission is due Friday. Good luck!`,
-    dueDate: 'Friday, Jan 30 at 3:00 PM',
-  };
+  const activeMessage = messages[0] || null;
 
   return (
     <>
@@ -172,6 +165,13 @@ export default function MessagesNotifications() {
             {/* Message Detail */}
             <div className="col-lg-7">
               <div className="sb-card">
+                {!activeMessage && (
+                  <p className="text-secondary text-center mb-0" style={{ fontSize: 14 }}>
+                    No messages yet.
+                  </p>
+                )}
+                {activeMessage && (
+                <>
                 <div className="mb-3 pb-3" style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <div className="d-flex justify-content-between align-items-start mb-1">
                     <h5 className="fw-bold mb-0" style={{ fontSize: 16 }}>{activeMessage.from}</h5>
@@ -198,6 +198,8 @@ export default function MessagesNotifications() {
                     </Link>
                   </div>
                 </div>
+                </>
+                )}
               </div>
             </div>
           </div>

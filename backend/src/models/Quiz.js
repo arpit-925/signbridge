@@ -6,7 +6,7 @@ const questionSchema = new mongoose.Schema(
     type: { type: String, enum: ['multiple-choice', 'sign-identification'], default: 'multiple-choice' },
     options: [{ type: String, required: true }],
     correctAnswer: { type: Number, required: true, select: false }, // Hidden by default from student responses
-    explanation: { type: String, default: '' },
+    explanation: { type: String, default: '', select: false }, // Hidden until an attempt is submitted
     mediaUrl: { type: String, default: '' },
   },
   { _id: true }

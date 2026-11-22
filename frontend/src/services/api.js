@@ -57,8 +57,15 @@ const subscribeTokenRefresh = (cb) => {
 };
 
 const onRefreshed = (token) => {
-  refreshSubscribers.forEach((cb) => cb(token));
+  const subscribers = refreshSubscribers;
   refreshSubscribers = [];
+  subscribers.forEach((cb) => cb(null, token));
+};
+
+const onRefreshFailed = (error) => {
+  const subscribers = refreshSubscribers;
+  refreshSubscribers = [];
+  subscribers.forEach((cb) => cb(error));
 };
 
 /**
@@ -117,19 +124,29 @@ export async function apiClient(endpoint, options = {}) {
         } else {
           isRefreshing = false;
           clearAuthStorage();
+          onRefreshFailed(new Error('Session expired. Please sign in again.'));
           window.dispatchEvent(new CustomEvent('sb-auth-expired'));
         }
       } catch (err) {
         isRefreshing = false;
         clearAuthStorage();
+        onRefreshFailed(err);
         window.dispatchEvent(new CustomEvent('sb-auth-expired'));
       }
     } else {
-      // Wait for refresh to finish
-      const retryPromise = new Promise((resolve) => {
-        subscribeTokenRefresh(async (newToken) => {
+      // Wait for the in-flight refresh, then retry — or reject if it fails.
+      const retryPromise = new Promise((resolve, reject) => {
+        subscribeTokenRefresh(async (refreshError, newToken) => {
+          if (refreshError) {
+            reject(refreshError);
+            return;
+          }
           config.headers.Authorization = `Bearer ${newToken}`;
-          resolve(await fetch(url, config));
+          try {
+            resolve(await fetch(url, config));
+          } catch (fetchError) {
+            reject(fetchError);
+          }
         });
       });
       response = await retryPromise;

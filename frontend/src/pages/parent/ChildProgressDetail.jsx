@@ -1,19 +1,44 @@
 import { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Loader2, AlertCircle, RefreshCw, ShieldAlert, ArrowLeft } from 'lucide-react';
 import { parentApi } from '../../services/parentApi';
 
 export default function ChildProgressDetail() {
   const { childId } = useParams();
-  const navigate = useNavigate();
-  const activeChildId = childId || 'leo';
+  const [children, setChildren] = useState([]);
+  const [activeChildId, setActiveChildId] = useState(childId || null);
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isForbidden, setIsForbidden] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await parentApi.getChildren();
+        const items = Array.isArray(list) ? list : [];
+        if (cancelled) return;
+        setChildren(items);
+        setActiveChildId((prev) => prev || items[0]?.id || null);
+        if (items.length === 0) {
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Unable to load your children.');
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const fetchProgress = async () => {
+    if (!activeChildId) return;
     setLoading(true);
     setError(null);
     setIsForbidden(false);
@@ -35,12 +60,8 @@ export default function ChildProgressDetail() {
     fetchProgress();
   }, [activeChildId]);
 
-  const name =
-    activeChildId === 'mia' || activeChildId === 'child_mia'
-      ? 'Mia'
-      : activeChildId === 'leo' || activeChildId === 'child_leo'
-      ? 'Leo'
-      : activeChildId.charAt(0).toUpperCase() + activeChildId.slice(1);
+  const activeChild = children.find((c) => String(c.id) === String(activeChildId));
+  const name = activeChild?.name || 'Your child';
 
   if (loading) {
     return (
@@ -78,7 +99,7 @@ export default function ChildProgressDetail() {
             <AlertCircle size={24} color="var(--danger)" />
             <div>
               <h6 className="fw-bold mb-1">Failed to load progress</h6>
-              <p className="mb-0 text-secondary" style={{ fontSize: 13 }}>{error}</p>
+              <p className="mb-0 text-secondary" style={{ fontSize: 13 }}>{error || 'No children are linked to this account.'}</p>
             </div>
           </div>
           <button onClick={fetchProgress} className="btn-secondary d-flex align-items-center gap-2">
@@ -91,10 +112,13 @@ export default function ChildProgressDetail() {
 
   const childSubjects = data.childSubjects || [];
   const dailyEngagement = data.dailyEngagement || [];
-  const feedback = data.teacherFeedback || {
-    teacher: 'Sarah Jenkins',
-    subject: 'Science',
-    comment: "Visual presentation on the water cycle was exceptional with clean signing.",
+  const feedback = data.teacherFeedback;
+
+  const switchChild = () => {
+    if (children.length < 2) return;
+    const index = children.findIndex((c) => String(c.id) === String(activeChildId));
+    const next = children[(index + 1) % children.length];
+    setActiveChildId(next.id);
   };
 
   return (
@@ -102,20 +126,18 @@ export default function ChildProgressDetail() {
       <div className="page-header d-flex flex-wrap align-items-center justify-content-between gap-3">
         <div>
           <h1>{name}'s Learning Journey</h1>
-          <p>Bilingual ASL Curriculum Track • Metro Public School</p>
+          <p>{activeChild?.school || 'Metro Public School'}</p>
         </div>
         <div className="d-flex gap-2">
-          <button
-            onClick={() => navigate(activeChildId === 'leo' ? '/parent/progress/mia' : '/parent/progress/leo')}
-            className="btn-secondary"
-          >
-            Switch to {activeChildId === 'leo' ? 'Mia' : 'Leo'}
-          </button>
+          {children.length > 1 && (
+            <button onClick={switchChild} className="btn-secondary">
+              Switch to {children.find((c) => String(c.id) !== String(activeChildId))?.name || 'next child'}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="page-body">
-        {/* Navigation Tabs */}
         <div className="filter-tabs mb-4">
           <button className="filter-tab active">Overview</button>
           <button className="filter-tab">Lessons</button>
@@ -124,10 +146,12 @@ export default function ChildProgressDetail() {
         </div>
 
         <div className="row g-4">
-          {/* Performance Breakdown & Engagement */}
           <div className="col-lg-7">
             <div className="sb-card mb-4">
               <div className="sb-card-title">📊 Subject Performance Breakdown</div>
+              {childSubjects.length === 0 && (
+                <p className="text-secondary mb-0" style={{ fontSize: 13 }}>No lesson progress recorded yet.</p>
+              )}
               {childSubjects.map((s, i) => (
                 <div key={i} className="mb-3">
                   <div className="d-flex justify-content-between mb-1">
@@ -142,7 +166,7 @@ export default function ChildProgressDetail() {
             </div>
 
             <div className="sb-card">
-              <div className="sb-card-title">📅 Daily Learning Engagement Time (Hours)</div>
+              <div className="sb-card-title">📅 Daily Learning Engagement (approx. hours)</div>
               <div className="d-flex align-items-end justify-content-between pt-4" style={{ height: 160 }}>
                 {dailyEngagement.map((day, i) => (
                   <div key={i} className="text-center d-flex flex-column align-items-center" style={{ flex: 1 }}>
@@ -150,7 +174,7 @@ export default function ChildProgressDetail() {
                       className={`rounded-top ${day.hours > 4 ? 'bg-accent' : 'bg-primary'}`}
                       style={{
                         width: 24,
-                        height: day.hours * 20,
+                        height: Math.max(4, day.hours * 20),
                         transition: 'height 0.3s ease',
                       }}
                     />
@@ -164,17 +188,22 @@ export default function ChildProgressDetail() {
             </div>
           </div>
 
-          {/* Teacher Feedback & Supportive Strategies */}
           <div className="col-lg-5">
             <div className="sb-card mb-4">
               <div className="sb-card-title">👩‍🏫 Teacher Feedback Summary</div>
               <div className="p-3 rounded-2" style={{ background: 'var(--background)', borderLeft: '3px solid var(--primary)' }}>
-                <span className="fw-bold d-block mb-1" style={{ fontSize: 13 }}>
-                  {feedback.teacher} • {feedback.subject}
-                </span>
-                <p className="text-secondary mb-0" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                  "{feedback.comment}"
-                </p>
+                {feedback ? (
+                  <>
+                    <span className="fw-bold d-block mb-1" style={{ fontSize: 13 }}>
+                      {feedback.teacher} • {feedback.subject}
+                    </span>
+                    <p className="text-secondary mb-0" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                      "{feedback.comment}"
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-secondary mb-0" style={{ fontSize: 13 }}>No teacher feedback has been recorded yet.</p>
+                )}
               </div>
             </div>
 
@@ -183,8 +212,7 @@ export default function ChildProgressDetail() {
               <div className="d-flex align-items-start gap-2">
                 <input type="checkbox" defaultChecked className="mt-1" style={{ accentColor: 'var(--primary)' }} />
                 <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                  {data.supportiveStrategy ||
-                    "Practice interactive math vocabulary using side-by-side ASL videos on Sign Bridge's Math module."}
+                  {data.supportiveStrategy || 'Encourage daily ASL practice using the lesson modules.'}
                 </span>
               </div>
             </div>

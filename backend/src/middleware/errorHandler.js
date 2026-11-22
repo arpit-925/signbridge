@@ -3,6 +3,10 @@ const { errorResponse } = require('../utils/response');
 const env = require('../config/env');
 
 const errorHandler = (err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
   let errors = err.errors || [];
@@ -48,9 +52,18 @@ const errorHandler = (err, req, res, next) => {
     statusCode = 400;
     message = 'Uploaded file exceeds the maximum allowed size';
   }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    statusCode = 400;
+    message = 'Unexpected file field in upload request';
+  }
 
-  if (env.NODE_ENV !== 'production' && statusCode === 500) {
+  if (statusCode === 500) {
     console.error('[UNHANDLED ERROR]', err);
+    // Never leak internal error details to clients in production.
+    if (env.NODE_ENV === 'production') {
+      message = 'Internal Server Error';
+      errors = [];
+    }
   }
 
   return errorResponse(res, message, errors, statusCode);
